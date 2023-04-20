@@ -4,19 +4,20 @@ public class Grain {
     private final int CLOCK_NUMBER = 160;
     private int[] lfsr;
     private int[] nfsr;
-    private int[] keystream;
-    private int fx;
-    private int gx;
-    private int hx;
-    private int z;
-    private String keyStreamInBinary;
 
-    public Grain(String iv, String key) {
-        this.lfsr = new int[160];
-        this.nfsr = new int[160];
-        this.keystream = new int[240];
+    /**
+     * Perfect for the case
+     * IV should 64 bit
+     * Key should 80 bit
+     *
+     * @param iv
+     * @param key
+     */
+    public Grain(String key, String iv) {
+        this.lfsr = new int[80];
+        this.nfsr = new int[80];
         initTwoRegisters(iv, key);
-        clock();
+        performClocking();
     }
 
     public void initTwoRegisters(String iv, String key) {
@@ -59,40 +60,40 @@ public class Grain {
         }
     }
 
-    public void clock() {
-        int new_nfsr;
-        int new_lfsr;
-        int new_filter;
+    public void performClocking() {
+        int randomNumberFromNFSR;
+        int randomNumberFromLFSR;
+        int filterOutput;
 
         for (int i = 0; i < CLOCK_NUMBER; i++) {
-            fx = calculateFx();
-            gx = calculateGx();
-            hx = calculateHx();
-            z = calculateZ();
+            int fx = calculateFx(lfsr);
+            int gx = calculateGx(lfsr, nfsr);
+            int hx = calculateHx(lfsr, nfsr);
+            int z = calculateZ(nfsr);
 
-            new_filter = hx ^ z;
-            new_nfsr = gx ^ new_filter;
-            new_lfsr = fx ^ new_filter;
+            filterOutput = hx ^ z;
+            randomNumberFromNFSR = gx ^ filterOutput;
+            randomNumberFromLFSR = fx ^ filterOutput;
 
-            for (int j = 0; j < 159; j++) {
+            for (int j = 0; j < 79; j++) {
                 this.lfsr[j] = this.lfsr[j + 1];
             }
-            lfsr[79] = new_lfsr;
+            lfsr[79] = randomNumberFromLFSR;
 
-            for (int k = 0; k < 159; k++) {
+            for (int k = 0; k < 79; k++) {
                 this.nfsr[k] = this.nfsr[k + 1];
             }
-            nfsr[79] = new_nfsr;
+            nfsr[79] = randomNumberFromNFSR;
         }
     }
 
-    public int calculateFx() {
-        fx = (byte) (lfsr[62] ^ lfsr[51] ^ lfsr[38] ^ lfsr[23] ^ lfsr[13] ^ lfsr[0]);
+    public int calculateFx(int[] lfsr) {
+        int fx = (byte) (lfsr[62] ^ lfsr[51] ^ lfsr[38] ^ lfsr[23] ^ lfsr[13] ^ lfsr[0]);
         return fx;
     }
 
-    public int calculateGx() {
-        gx = (byte) (
+    public int calculateGx(int[] lfsr, int[] nfsr) {
+        int gx = (byte) (
                           lfsr[0] ^ nfsr[62] ^ nfsr[60]
                         ^ nfsr[52] ^ nfsr[45] ^ nfsr[37]
                         ^ nfsr[33] ^ nfsr[28] ^ nfsr[21]
@@ -110,18 +111,18 @@ public class Grain {
         return gx;
     }
 
-    public int calculateHx() {
+    public int calculateHx(int[] lfsr, int[] nfsr) {
         int x0 = lfsr[3];
         int x1 = lfsr[25];
         int x2 = lfsr[46];
         int x3 = lfsr[64];
         int x4 = nfsr[63];
-        hx = (x1 ^ x4 ^ (x0 & x3) ^ (x2 & x3) ^ (x3 & x4) ^ (x0 & x1 & x2)
+        int hx = (x1 ^ x4 ^ (x0 & x3) ^ (x2 & x3) ^ (x3 & x4) ^ (x0 & x1 & x2)
                  ^ (x0 & x2 & x3) ^ (x0 & x2 & x4) ^ (x1 & x2 & x4) ^ (x2 & x3 & x4));
         return hx;
     }
 
-    public int calculateZ() {
+    public int calculateZ(int[] nfsr) {
         int z0 = nfsr[1];
         int z1 = nfsr[2];
         int z2 = nfsr[4];
@@ -130,25 +131,24 @@ public class Grain {
         int z5 = nfsr[43];
         int z6 = nfsr[56];
 
-        z = z0 ^ z1 ^ z2 ^ z3 ^ z4 ^ z5 ^ z6;
+        int z = z0 ^ z1 ^ z2 ^ z3 ^ z4 ^ z5 ^ z6;
         return z;
     }
 
-    public String getPlainTextInBinaryAndKeystream(String plainText) {
+    public int[] getKeystream(String plainText) {
 
-        int new_filter;
+        int filterResult;
         String plainTextInBinary = Utils.stringToBinary(plainText);
-        System.out.println("Plain Text In Binary = " + plainTextInBinary);
-        System.out.print("Keystream = ");
-        for (int i = 0; i < plainTextInBinary.length(); i++) {
-            fx = calculateFx();
-            gx = calculateGx();
-            hx = calculateHx();
-            z = calculateZ();
+        int[] keystream = new int[plainTextInBinary.length()];
 
-            new_filter = hx ^ z;
-            keystream[i] = new_filter;
-            System.out.print(keystream[i]);
+        for (int i = 0; i < plainTextInBinary.length(); i++) {
+            int fx = calculateFx(lfsr);
+            int gx = calculateGx(lfsr, nfsr);
+            int hx = calculateHx(lfsr, nfsr);
+            int z = calculateZ(nfsr);
+
+            filterResult = hx ^ z;
+            keystream[i] = filterResult;
 
             for (int j = 0; j < 79; j++) {
                 this.lfsr[j] = this.lfsr[j + 1];
@@ -160,55 +160,49 @@ public class Grain {
             }
             nfsr[79] = gx;
         }
-        System.out.println("");
-        encrypt(plainTextInBinary);
-        return plainTextInBinary;
+        return keystream;
     }
 
 
-    public String encrypt(String plainTextInBinary) {
+    public String encrypt(String plainTextInBinary, int[] keystream) {
         String cypherText = "";
         Byte[] result_array = new Byte[plainTextInBinary.length()];
         Byte[] result_xor_array = new Byte[plainTextInBinary.length()];
-        keyStreamInBinary = "";
 
         for (int i = 0; i < result_array.length; i++) {
             result_array[i] = Byte.parseByte(String.valueOf(plainTextInBinary.charAt(i)));
-            result_xor_array[i] = (byte) (this.keystream[i] ^ result_array[i]);
+            result_xor_array[i] = (byte) (keystream[i] ^ result_array[i]);
             cypherText += result_xor_array[i];
-            keyStreamInBinary += keystream[i];
         }
 
         return cypherText;
     }
 
-    public String decrypt(String cipherText) {
-        Byte[] a_array = new Byte[cipherText.length()];
-        Byte[] b_array = new Byte[keyStreamInBinary.length()];
+    public String decrypt(String cipherText, int[] keyStream) {
+        Byte[] cipherTextInByte = new Byte[cipherText.length()];
+        Byte[] keyStreamInByte = new Byte[keyStream.length];
 
-        String plain_binary = "";
-        String plain = "";
+        String tempDecryptedTextInBinary = "";
+        String decryptedText = "";
         Byte[] result = new Byte[cipherText.length()];
 
-        for (int i = 0; i < a_array.length; i++) {
-            a_array[i] = Byte.parseByte(String.valueOf(cipherText.charAt(i)));
+        for (int i = 0; i < cipherTextInByte.length; i++) {
+            cipherTextInByte[i] = Byte.parseByte(String.valueOf(cipherText.charAt(i)));
         }
 
-        for (int i = 0; i < b_array.length; i++) {
-            b_array[i] = Byte.parseByte(String.valueOf(keyStreamInBinary.charAt(i)));
+        for (int i = 0; i < keyStreamInByte.length; i++) {
+            keyStreamInByte[i] = Byte.parseByte(String.valueOf(keyStream[i]));
         }
 
         for (int i = 0; i < cipherText.length(); i++) {
-            result[i] = (byte) (b_array[i] ^ a_array[i]);
-            plain_binary += result[i];
+            result[i] = (byte) (keyStreamInByte[i] ^ cipherTextInByte[i]);
+            tempDecryptedTextInBinary += result[i];
         }
 
-        System.out.println("Decrypt = " + plain_binary);
-        System.out.println("");
-        for (int i = 0; i < plain_binary.length(); i += 8) {
-            int k = Integer.parseInt(plain_binary.substring(i, i + 8), 2);
-            plain += (char) k;
+        for (int i = 0; i < tempDecryptedTextInBinary.length(); i += 8) {
+            int k = Integer.parseInt(tempDecryptedTextInBinary.substring(i, i + 8), 2);
+            decryptedText += (char) k;
         }
-        return plain;
+        return decryptedText;
     }
 }
